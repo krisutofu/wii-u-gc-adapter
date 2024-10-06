@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
 #include <getopt.h>
 
@@ -55,6 +56,24 @@ const int BUTTON_OFFSET_VALUES[16] = {
    BTN_DPAD_DOWN,
    BTN_DPAD_UP,
 };
+const int BUTTON_ALTERNATIVE_VALUES[16] = {
+   BTN_START,
+   BTN_Z,
+   BTN_TR,
+   BTN_TL,
+   -1,
+   -1,
+   -1,
+   -1,
+   BTN_A,
+   BTN_B,
+   BTN_X,
+   BTN_Y,
+   BTN_DPAD_LEFT,
+   BTN_DPAD_RIGHT,
+   BTN_DPAD_DOWN,
+   BTN_DPAD_UP,
+};
 
 const int AXIS_OFFSET_VALUES[6] = {
    ABS_X,
@@ -98,7 +117,11 @@ struct adapter
    struct adapter *next;
 };
 
-static bool raw_mode;
+static bool uses_raw_mode;
+static bool uses_abxyz_buttons = false;
+static bool uses_trigger_or_shoulder = false;
+static bool uses_trigger_as_shoulder = false;
+static bool quits_on_interrupt = false;
 
 static volatile int quitting;
 
@@ -123,11 +146,70 @@ static unsigned char connected_type(unsigned char status)
    }
 }
 
+static struct uinput_user_dev default_udev_settings = {
+   .absmin[ABS_X]  = 35, .absmax[ABS_X]  = 220, .absfuzz[ABS_X]  = 2, .absflat[ABS_X] = 0,
+   .absmin[ABS_Y]  = 35, .absmax[ABS_Y]  = 220, .absfuzz[ABS_Y]  = 2, .absflat[ABS_Y] = 0,
+   .absmin[ABS_RX] = 35, .absmax[ABS_RX] = 218, .absfuzz[ABS_RX] = 2, .absflat[ABS_RX] = 0,
+   .absmin[ABS_RY] = 35, .absmax[ABS_RY] = 218, .absfuzz[ABS_RY] = 2, .absflat[ABS_RY] = 0,
+   .absmin[ABS_Z]  = 35, .absmax[ABS_Z]  = 190, .absfuzz[ABS_Z]  = 4, .absflat[ABS_Z] = 35,
+   .absmin[ABS_RZ] = 35, .absmax[ABS_RZ] = 190, .absfuzz[ABS_RZ] = 4, .absflat[ABS_RZ] = 35,
+};
+
+static void set_raw_absinfo()
+{
+   uses_raw_mode = true;
+   default_udev_settings.absmin[ABS_X]  = 0;  default_udev_settings.absmax[ABS_X]  = 255;
+   default_udev_settings.absmin[ABS_Y]  = 0;  default_udev_settings.absmax[ABS_Y]  = 255;
+   default_udev_settings.absmin[ABS_RX] = 0;  default_udev_settings.absmax[ABS_RX] = 255;
+   default_udev_settings.absmin[ABS_RY] = 0;  default_udev_settings.absmax[ABS_RY] = 255;
+   default_udev_settings.absmin[ABS_Z]  = 0;  default_udev_settings.absmax[ABS_Z]  = 255;
+   default_udev_settings.absmin[ABS_RZ] = 0;  default_udev_settings.absmax[ABS_RZ] = 255;
+}
+
+/** Expects the command line settings to a comma separated list of assignments. The allowed variables are LX, LY, L, RX, RY, R and the allowed values are unsigned integer literals.
+ *  The array_offset must be the offsetof(struct uinput_user_dev, …) of an array member field.
+  */
+static void set_axis_absinfo(ptrdiff_t array_offset, char command_line_settings[])
+{
+   signed int *absinfo_array = (signed int*)((char*) &default_udev_settings + array_offset);
+
+   for ( char *next_item = strtok(command_line_settings, ","); next_item != NULL; next_item = strtok(NULL, ",") )
+   {
+      int axis_name_length = strcspn(next_item, "=");
+      if (next_item[axis_name_length] == '\0')
+         continue;
+
+      char *axis_value_string = next_item + axis_name_length + 1;
+      char *axis_value_end;
+      int axis_value = strtoul(axis_value_string, &axis_value_end, 10);
+      if (axis_value_string == axis_value_end)
+         continue;
+
+      if (next_item[0] == 'L')
+      {
+         if (next_item[1] == 'X')
+            absinfo_array[ABS_X] = axis_value;
+         else if (next_item[1] == 'Y')
+            absinfo_array[ABS_Y] = axis_value;
+         else
+            absinfo_array[ABS_Z] = axis_value;
+      }
+      else if (next_item[0] == 'R')
+      {
+         if (next_item[1] == 'X')
+            absinfo_array[ABS_RX] = axis_value;
+         else if (next_item[1] == 'Y')
+            absinfo_array[ABS_RY] = axis_value;
+         else
+            absinfo_array[ABS_RZ] = axis_value;
+      }
+   }
+}
+
 static bool uinput_create(int i, struct ports *port, unsigned char type)
 {
    fprintf(stderr, "connecting on port %d\n", i);
-   struct uinput_user_dev uinput_dev;
-   memset(&uinput_dev, 0, sizeof(uinput_dev));
+   struct uinput_user_dev uinput_dev = default_udev_settings;
    port->uinput = open(uinput_path, O_RDWR | O_NONBLOCK);
 
    // buttons
@@ -143,7 +225,11 @@ static bool uinput_create(int i, struct ports *port, unsigned char type)
    ioctl(port->uinput, UI_SET_KEYBIT, BTN_DPAD_RIGHT);
    ioctl(port->uinput, UI_SET_KEYBIT, BTN_TL);
    ioctl(port->uinput, UI_SET_KEYBIT, BTN_TR);
-   ioctl(port->uinput, UI_SET_KEYBIT, BTN_TR2);
+
+   if (uses_abxyz_buttons)
+      ioctl(port->uinput, UI_SET_KEYBIT, BTN_Z);
+   else
+      ioctl(port->uinput, UI_SET_KEYBIT, BTN_TR2);
 
    // axis
    ioctl(port->uinput, UI_SET_EVBIT, EV_ABS);
@@ -153,25 +239,6 @@ static bool uinput_create(int i, struct ports *port, unsigned char type)
    ioctl(port->uinput, UI_SET_ABSBIT, ABS_RY);
    ioctl(port->uinput, UI_SET_ABSBIT, ABS_Z);
    ioctl(port->uinput, UI_SET_ABSBIT, ABS_RZ);
-
-   if (raw_mode)
-   {
-      uinput_dev.absmin[ABS_X]  = 0;  uinput_dev.absmax[ABS_X]  = 255;
-      uinput_dev.absmin[ABS_Y]  = 0;  uinput_dev.absmax[ABS_Y]  = 255;
-      uinput_dev.absmin[ABS_RX] = 0;  uinput_dev.absmax[ABS_RX] = 255;
-      uinput_dev.absmin[ABS_RY] = 0;  uinput_dev.absmax[ABS_RY] = 255;
-      uinput_dev.absmin[ABS_Z]  = 0;  uinput_dev.absmax[ABS_Z]  = 255;
-      uinput_dev.absmin[ABS_RZ] = 0;  uinput_dev.absmax[ABS_RZ] = 255;
-   }
-   else
-   {
-      uinput_dev.absmin[ABS_X]  = 20; uinput_dev.absmax[ABS_X]  = 235;
-      uinput_dev.absmin[ABS_Y]  = 20; uinput_dev.absmax[ABS_Y]  = 235;
-      uinput_dev.absmin[ABS_RX] = 30; uinput_dev.absmax[ABS_RX] = 225;
-      uinput_dev.absmin[ABS_RY] = 30; uinput_dev.absmax[ABS_RY] = 225;
-      uinput_dev.absmin[ABS_Z]  = 25; uinput_dev.absmax[ABS_Z]  = 225;
-      uinput_dev.absmin[ABS_RZ] = 25; uinput_dev.absmax[ABS_RZ] = 225;
-   }
 
    // rumble
    ioctl(port->uinput, UI_SET_EVBIT, EV_FF);
@@ -326,6 +393,31 @@ static int create_ff_event(struct ports *port, struct uinput_ff_upload *upload)
    return -1;
 }
 
+static void add_button_event(struct input_event events[], int *events_count, uint16_t previous_button_state, uint16_t *result_button_state, const int button_codes[], uint16_t button_pressed_mask, int tested_button_id)
+{
+   int button_code = button_codes[tested_button_id];
+   if (button_code == -1)
+      return;
+
+   uint16_t single_button_mask = (1 << tested_button_id);
+   uint16_t single_button_pressed_mask = button_pressed_mask & single_button_mask;
+
+
+   if ((previous_button_state & single_button_mask) != single_button_pressed_mask)
+   {
+      int e_count = *events_count;
+      events[e_count].type = EV_KEY;
+      events[e_count].code = button_code;
+      events[e_count].value = (single_button_pressed_mask != 0);
+      e_count++;
+      *events_count = e_count;
+
+      previous_button_state &= ~single_button_mask;
+      previous_button_state |= single_button_pressed_mask;
+      *result_button_state = previous_button_state;
+   }
+}
+
 static void handle_payload(int i, struct ports *port, unsigned char *payload, struct timespec *current_time)
 {
    unsigned char status = payload[0];
@@ -351,41 +443,65 @@ static void handle_payload(int i, struct ports *port, unsigned char *payload, st
       port->type = type;
    }
 
-   struct input_event events[12+6+1] = {0}; // buttons + axis + syn event
+   struct input_event events[16+6+1] = {0}; // buttons + axis + syn event
    int e_count = 0;
 
    uint16_t btns = (uint16_t) payload[1] << 8 | (uint16_t) payload[2];
 
+   uint16_t previous_buttons_state = port->buttons;
    for (int j = 0; j < 16; j++)
    {
-      if (BUTTON_OFFSET_VALUES[j] == -1)
-         continue;
-
-      uint16_t mask = (1 << j);
-      uint16_t pressed = btns & mask;
-
-      if ((port->buttons & mask) != pressed)
+      if (uses_abxyz_buttons)
       {
-         events[e_count].type = EV_KEY;
-         events[e_count].code = BUTTON_OFFSET_VALUES[j];
-         events[e_count].value = (pressed == 0) ? 0 : 1;
-         e_count++;
-         port->buttons &= ~mask;
-         port->buttons |= pressed;
+         add_button_event(events, &e_count, previous_buttons_state, &port->buttons, BUTTON_ALTERNATIVE_VALUES, btns, j);
+      }
+      else
+      {
+         add_button_event(events, &e_count, previous_buttons_state, &port->buttons, BUTTON_OFFSET_VALUES, btns, j);
       }
    }
+
+   previous_buttons_state = (previous_buttons_state ^ port->buttons) & port->buttons;
+   int left_shoulder_index = 3;
+   bool is_left_shoulder_pressed_down = previous_buttons_state & (1 << left_shoulder_index);
+   int right_shoulder_index = 2;
+   bool is_right_shoulder_pressed_down =  previous_buttons_state & (1 << right_shoulder_index);
 
    for (int j = 0; j < 6; j++)
    {
       unsigned char value = payload[j+3];
+      int current_axis = AXIS_OFFSET_VALUES[j];
 
-      if (AXIS_OFFSET_VALUES[j] == ABS_Y || AXIS_OFFSET_VALUES[j] == ABS_RY)
+      if (current_axis == ABS_Y || current_axis == ABS_RY)
          value ^= 0xFF; // flip from 0 - 255 to 255 - 0
+      else if (uses_trigger_as_shoulder && (current_axis == ABS_Z || current_axis == ABS_RZ))
+      {
+         value = value > default_udev_settings.absmin[current_axis] + 20;
+         int button_mask = 1 << ((current_axis == ABS_Z) ? 3 : 2);
+
+         if ((port->buttons & button_mask) != value)
+         {
+            events[e_count].type = EV_KEY;
+            events[e_count].code = (current_axis == ABS_Z) ? BTN_TL : BTN_TR;
+            events[e_count].value = value;
+            e_count++;
+            port->buttons &= ~button_mask;
+            port->buttons |= button_mask * value;
+         }
+         continue;
+      }
+      else if (uses_trigger_or_shoulder)
+      {
+         if (is_left_shoulder_pressed_down && current_axis == ABS_Z)
+            value = default_udev_settings.absmin[ABS_Z];
+         else if (is_right_shoulder_pressed_down && current_axis == ABS_RZ)
+            value = default_udev_settings.absmin[ABS_RZ];
+      }
 
       if (port->axis[j] != value)
       {
          events[e_count].type = EV_ABS;
-         events[e_count].code = AXIS_OFFSET_VALUES[j];
+         events[e_count].code = current_axis;
          events[e_count].value = value;
          e_count++;
          port->axis[j] = value;
@@ -479,6 +595,15 @@ static void *adapter_thread(void *data)
         return NULL;
     }
 
+   #define decide_on_quitting_the_loop() do { \
+         if (quits_on_interrupt) { \
+            a->quitting = true; \
+            break; \
+         } \
+   \
+         sleep(1); \
+   } while(0)
+
    while (!a->quitting)
    {
       unsigned char payload[37];
@@ -486,8 +611,8 @@ static void *adapter_thread(void *data)
       int transfer_ret = libusb_interrupt_transfer(a->handle, EP_IN, payload, sizeof(payload), &size, 0);
       if (transfer_ret != 0) {
          fprintf(stderr, "libusb_interrupt_transfer error %d\n", transfer_ret);
-         a->quitting = true;
-         break;
+         decide_on_quitting_the_loop();
+         continue;
       }
       if (size != 37 || payload[0] != 0x21)
          continue;
@@ -526,8 +651,8 @@ static void *adapter_thread(void *data)
          transfer_ret = libusb_interrupt_transfer(a->handle, EP_OUT, a->rumble, sizeof(a->rumble), &size, 0);
          if (transfer_ret != 0) {
             fprintf(stderr, "libusb_interrupt_transfer error %d\n", transfer_ret);
-            a->quitting = true;
-            break;
+            decide_on_quitting_the_loop();
+            continue;
          }
       }
    }
@@ -634,12 +759,30 @@ static uint16_t parse_id(const char* str)
 enum {
    opt_vendor = 1000,
    opt_product,
+   opt_use_abxyz_buttons,
+   opt_only_abxyz_buttons,
+   opt_quit_interrupt,
+   opt_deadzone,
+   opt_tolerance,
+   opt_min,
+   opt_max,
+   opt_trigger_or_shoulder,
+   opt_trigger_as_shoulder,
 };
 
 static struct option options[] = {
+   { "help", no_argument, 0, 'h' },
    { "raw", no_argument, 0, 'r' },
    { "vendor", required_argument, 0, opt_vendor },
    { "product", required_argument, 0, opt_product },
+   { "enable-abxyz", no_argument, 0, opt_use_abxyz_buttons },
+   { "quit-on-interrupt", no_argument, 0, opt_quit_interrupt },
+   { "deadzone", required_argument, 0, opt_deadzone },
+   { "change-tolerance", required_argument, 0, opt_tolerance },
+   { "min-value", required_argument, 0, opt_min },
+   { "max-value", required_argument, 0, opt_max },
+   { "shoulder-nand-trigger", no_argument, 0, opt_trigger_or_shoulder },
+   { "trigger-buttons", no_argument, 0, opt_trigger_as_shoulder },
    { 0, 0, 0, 0 },
 };
 
@@ -653,14 +796,39 @@ int main(int argc, char *argv[])
 
    while (1) {
       int option_index = 0;
-      int c = getopt_long(argc, argv, "r", options, &option_index);
+      int c = getopt_long(argc, argv, "rh", options, &option_index);
       if (c == -1)
          break;
+
+      if (c == 'h') {
+         fprintf(stdout,
+            "usage: wii-u-gc-adapter  [--help] [--raw] [--vendor ⟨int⟩] [--product ⟨int⟩] [--enable-abxyz] [--shoulder-nand-trigger] [--quit-on-interrupt]\\\n"
+            "                 [--trigger-buttons]\\\n"
+            "                 [--deadzone [LX=⟨int⟩,][LY=⟨int⟩,][RX=⟨int⟩,][RY=⟨int⟩,][L=⟨int⟩,][R=⟨int⟩,]\"\"] \\\n"
+            "                 [--change-tolerance [LX=⟨int⟩,][LY=⟨int⟩,][RX=⟨int⟩,][RY=⟨int⟩,][L=⟨int⟩,][R=⟨int⟩,]\"\"] \\\n"
+            "                 [--min-value [LX=⟨int⟩,][LY=⟨int⟩,][RX=⟨int⟩,][RY=⟨int⟩,][L=⟨int⟩,][R=⟨int⟩,]\"\"] \\\n"
+            "                 [--max-value [LX=⟨int⟩,][LY=⟨int⟩,][RX=⟨int⟩,][RY=⟨int⟩,][L=⟨int⟩,][R=⟨int⟩,]\"\"] \\\n"
+            "\n"
+            "--raw removes the lower and upper limit in the analog input values, i.e. it sets min = 0, max = 255 instead of using the adjusted default values.\n"
+            "--quit-on-interrupt will make the thread stop and exit when a libusb interrupt occurs, otherwise it tries to wait and retry.\n"
+            "--vendor and --product correspond to the IDs associated to the event device that should be read. Default values are vendor = %p, product = %p.\n"
+            "--enable-abxyz replaces the existing BTN_SOUTH, BTN_WEST, BTN_EAST, BTN_NORTH, BTN_TR2 events with BTN_A, BTN_B, BTN_X, BTN_Y, BTN_Z\n"
+            "--shoulder-nand-trigger ensures that shoulder and trigger are not active together at the same time. As long as pressing the shoulder, the trigger is released.\n"
+            "--trigger-buttons makes the triggers behave as shoulder buttons only. Use --min-value L=255,R=255 to disable the analog triggers entirely.\n"
+            "--deadzone, --change-tolerance, --min-value and --max-value configure the analog axis event value.\n"
+            "       Deadzone specifies a limit on the absolute value of the analog control element which suppresses events for smaller values, default value is '35' for L and R triggers.\n"
+            "       The change tolerance specifies a limit on the value difference of the analog value which suppresses events for smaller differences, default value is '1'\n"
+            "       Min Value is the lowest analog value emitted from an analog axis.\n"
+            "       Max Value is the maximum analog value emitted from an analog axis. Note, it's slightly reduced for the left thumb stick and might require a gain for some games\n",
+            USB_ID_VENDOR, USB_ID_PRODUCT
+         );
+         exit(0);
+      }
 
       switch (c) {
       case 'r':
          fprintf(stderr, "raw mode enabled\n");
-         raw_mode = true;
+         set_raw_absinfo();
          break;
       case opt_vendor:
          vendor_id = parse_id(optarg);
@@ -669,6 +837,18 @@ int main(int argc, char *argv[])
       case opt_product:
          product_id = parse_id(optarg);
          fprintf(stderr, "product_id = %#06x\n", product_id);
+         break;
+      case opt_use_abxyz_buttons: uses_abxyz_buttons = true; break;
+      case opt_trigger_or_shoulder: uses_trigger_or_shoulder = true; break;
+      case opt_quit_interrupt: quits_on_interrupt = true; break;
+      case opt_deadzone: set_axis_absinfo(offsetof(struct uinput_user_dev, absflat), optarg); break;
+      case opt_tolerance: set_axis_absinfo(offsetof(struct uinput_user_dev, absfuzz), optarg); break;
+      case opt_min: set_axis_absinfo(offsetof(struct uinput_user_dev, absmin), optarg); break;
+      case opt_max: set_axis_absinfo(offsetof(struct uinput_user_dev, absmax), optarg); break;
+      case opt_trigger_as_shoulder:
+         uses_trigger_as_shoulder = true;
+         default_udev_settings.absmin[ABS_Z] -= 10;
+         default_udev_settings.absmin[ABS_RZ] -= 10;
          break;
       }
    }

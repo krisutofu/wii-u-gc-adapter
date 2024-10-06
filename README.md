@@ -1,3 +1,21 @@
+Fork Improvements
+=====
+
+* add help text with "--help" option
+
+* improved input range (better uinput_user_dev absinfo values) to improve the behaviour of the analog inputs, notably the L and R shoulder buttons
+  - allow for full thumb stick movement (by matching min and max values closer to the actual range)
+  - absfuzz is set for the purpose of ignoring input noise (stops the constant input triggering of L/R shoulder triggers, especially useful when remapped as discrete input)
+  - absflat is set as a deadzone value for the L and R triggers
+  - note: you can further configure axes in key remapping software
+
+* support alternative A, B, X, Y, Z gamepad button names (games use one or the other)
+
+* don't die on libusb interrupts
+
+* Trigger-shoulder complementary mode (when shoulder button is pressed, reset the trigger input)
+* Shoulder-only mode (pressing trigger activates the shoulder buttons, allows xboxdrv users to map the Dpad inputs to Trigger buttons, replacing trigger axes.)
+
 wii-u-gc-adapter
 ================
 
@@ -24,10 +42,7 @@ and hotplugging (both controllers and adapters) is supported.
 
 Quirks
 ------
-* It's new, so there might be bugs! Please report them!
-* The uinput kernel module is required. If it's not autoloaded, you should do
-  so with `modprobe uinput`
-* Input ranges on the sticks/analog triggers are scaled to try to match the
+* Input ranges on the sticks/analog triggers are defined to try to match the
   physical ranges of the controls. To remove this scaling run the program with
   the `--raw` flag.
 * If all your controllers start messing with the mouse cursor, you can fix

@@ -24,4 +24,4 @@ clean:
 	rm -f $(TARGET)
 	rm -f $(OBJS)
 
-.PHONY: all clean
+.PHONY: all $(TARGET) clean
