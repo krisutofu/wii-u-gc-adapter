@@ -18,7 +18,7 @@ OBJS = wii-u-gc-adapter.o
 $(TARGET): $(OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-all: $(TARGET)
+all: clean $(TARGET)
 
 clean:
 	rm -f $(TARGET)
