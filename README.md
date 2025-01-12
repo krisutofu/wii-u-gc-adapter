@@ -1,25 +1,56 @@
-Fork Improvements
-=====
-
-* add help text with "--help" option
-
-* improved input range (better uinput_user_dev absinfo values) to improve the behaviour of the analog inputs, notably the L and R shoulder buttons
-  - allow for full thumb stick movement (by matching min and max values closer to the actual range)
-  - absfuzz is set for the purpose of ignoring input noise (stops the constant input triggering of L/R shoulder triggers, especially useful when remapped as discrete input)
-  - absflat is set as a deadzone value for the L and R triggers
-  - note: you can further configure axes in key remapping software
-
-* support alternative A, B, X, Y, Z gamepad button names (games use one or the other)
-
-* don't die on libusb interrupts
-
-* Trigger-shoulder complementary mode (when shoulder button is pressed, reset the trigger input)
-* Shoulder-only mode (pressing trigger activates the shoulder buttons, allows xboxdrv users to map the Dpad inputs to Trigger buttons, replacing trigger axes.)
 
 wii-u-gc-adapter
 ================
 
 Tool for using the Wii U GameCube Adapter on Linux
+
+**New** (Fork Improvements)
+---------------------------
+
+* comprehensive analog input configuration (axes)
+  - define custom mapping of scales to analog axes and define custom mapping of axes to analog inputs
+
+* try command line option `--claim`, maybe it helps against libusb ERRORs
+
+* spoofing options (which are likely mostly useless) to spoof XBOX controller meta data (use xboxdrv instead)
+
+* add many new mapping options and better button choices optimized for PC gaming
+  - map analog inputs to various axes with custom scales
+  - choose a button for Z
+  - triggers as binary button
+  - remapping D-pad to remaining XBOX buttons
+  - remapping control sticks to D-pads (even sensitive duty cycling available)
+
+* bug fixes related to shoulder button codes and added options such as --trigger-buttons, or uinput_create()
+
+* add help text with "--help" option
+
+* support alternative A, B, X, Y, Z gamepad button names (games use one or the other)
+
+* don't die on libusb interrupts
+
+* trigger-shoulder complementary mode (when shoulder button is pressed, reset the trigger input)
+* trigger-only mode as default (shoulder buttons (fully depressed triggers) activate the triggers as binary buttons instead)
+
+* improved input range (better uinput_user_dev absinfo values) to improve the behaviour of the analog inputs, notably the L and R shoulder buttons
+  - allow for full thumb stick movement (by matching min and max values closer to the actual range)
+  - absfuzz is set for the purpose of ignoring input noise (stops the constant input triggering of L/R shoulder triggers, especially useful when remapped as discrete input)
+  - absflat is set as a deadzone value for the L and R triggers
+  - manual absinfo values via command line options
+
+**Next Feature Ideas**
+--------
+
+* is it sufficient to spoof IDs and name to mimic XBOX controllers? What about playstation controllers?
+* programming and replay mode for custom button macros
+* per-port configuration (copy global configuration variables as pointers into port struct to optionally overridable the globals)
+* support additional buttons for D-pad and Z (BTN_MODE (Guide button) which has no ingame relevance, other ones?)
+* add relative axes to the names
+* support additional axes (ABS_HAT0[XY] (analog D-pad), ABS_THROTTLE, ABS_RUDDER)
+  - emit ABS_HAT0 by pressing D-pad (with or without active D-pad buttons)
+* configuration file for command line arguments
+* button recording and replaying when pressing BTN_SELECT
+* duty cycling mode for any buttons when pressing Z and L or R
 
 Prerequisites
 -------------
