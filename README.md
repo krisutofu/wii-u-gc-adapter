@@ -9,13 +9,14 @@ Tool for using the Wii U GameCube Adapter on Linux
 
 * comprehensive analog input configuration (axes)
   - define custom mapping of scales to analog axes and define custom mapping of axes to analog inputs
+  - split analog inputs into two output axes
+  - suport for additional output axes such as ABS_WHEEL, ABS_GAS and ABS_BRAKE.
 
 * try command line option `--claim`, maybe it helps against libusb ERRORs
 
 * spoofing options (which are likely mostly useless) to spoof XBOX controller meta data (use xboxdrv instead)
 
 * add many new mapping options and better button choices optimized for PC gaming
-  - map analog inputs to various axes with custom scales
   - choose a button for Z
   - triggers as binary button
   - remapping D-pad to remaining XBOX buttons
@@ -35,12 +36,13 @@ Tool for using the Wii U GameCube Adapter on Linux
 * improved input range (better uinput_user_dev absinfo values) to improve the behaviour of the analog inputs, notably the L and R shoulder buttons
   - allow for full thumb stick movement (by matching min and max values closer to the actual range)
   - absfuzz is set for the purpose of ignoring input noise (stops the constant input triggering of L/R shoulder triggers, especially useful when remapped as discrete input)
-  - absflat is set as a deadzone value for the L and R triggers
+  - absflat can be set as a deadzone for analog axes
   - manual absinfo values via command line options
 
 **Next Feature Ideas**
 --------
 
+* automated tests with dummy input
 * is it sufficient to spoof IDs and name to mimic XBOX controllers? What about playstation controllers?
 * programming and replay mode for custom button macros
 * per-port configuration (copy global configuration variables as pointers into port struct to optionally overridable the globals)
