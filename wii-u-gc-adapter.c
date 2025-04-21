@@ -1797,7 +1797,7 @@ int main(int argc, char *argv[])
             "--analog-dpad-right-flipped emits ABS_HAT0Y and ABS_HAT0X instead of ABS_HAT0X and ABS_HAT0Y when using the right thumbstick.\n"
             "\n");
          fprintf(stdout,
-            "--shoulder-none            (default) emits events for trigger buttons LT (BTN_TL2) and RT (BTN_TR2) when L or R are depressed fully, instead of LB (BTN_TL) and RB (BTN_TR).\n"
+            "--shoulder-none            (default) do NOT emit events for trigger buttons LT (BTN_TL2) and RT (BTN_TR2) when L or R are depressed fully, instead of LB (BTN_TL) and RB (BTN_TR).\n"
             "--shoulder-nand-trigger    ensures that LB/RB and LT/RT are never active together at the same time. LB/RB are activated when L and R are depressed fully.\n"
             "--shoulder-also-trigger    emits LB/RB while the trigger (LT/RT) is depressed fully. LB and RB only activate when LT/RT are active.\n"
             "\n"
